@@ -96,18 +96,8 @@ chmod +x deploy_bot.sh
 ## 输出示例
 
 ```
-🪙 FortyTwo Token Monitor
-Time: 2024-01-15 14:30:25
+![image](https://github.com/user-attachments/assets/1570530e-d90e-4ee8-9862-1a670387b958)
 
-Address: 0x2B0257e1302F2c3e0677956d0EA3F28d84919884
-MON Balance: 1.234567 MON
-42T Balance: 0.500000 42T
-
-Recent Transactions:
-1. 2024-01-15 14:25:30
-   0x1234567890...
-
-View on Explorer
 ```
 
 ## 技术信息
