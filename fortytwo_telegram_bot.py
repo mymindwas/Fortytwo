@@ -13,85 +13,247 @@ from telegram import Update
 from telegram.ext import Application, CommandHandler, ContextTypes
 
 # Constants
-MONAD_RPC = "https://rpc.testnet.monad.xyz"
+MONAD_RPC = "https://testnet-rpc.monad.xyz"
+FORTYTWO_TOKEN_ADDRESS = "0x22A3d96424Df6f04d02477cB5ba571BBf615F47E"  # 42T代币合约地址
+
+# BlockVision API配置
+BLOCKVISION_API_KEY = os.getenv("BLOCKVISION_API_KEY", "")  # 可选：BlockVision API密钥
+
 DEFAULT_ADDRESSES = [
-    "0x2B0257e1302F2c3e0677956d0EA3F28d84919884",
-    "0x438b28b1f4AeC1A38aCF577Ad63921a21AB1BC4F",
-    "0x5a015B23eD0851eE17720F11B788a6C0bE918AF6",
-    "0xbA511e574aA768245C26602a9FD82608Daa840cc",
-    "0x5DBB65DE18295a3920c556893A11C11F1Da9C721",
-    "0xa2106b7DAF74b7a649115e3C02Cce1C6CDcF27C7",
-    "0x4054D631D426B87Eb9a1bf666832227f469e06AF"
+
 ]
 
 USER_CONFIGS = {}
+BALANCE_HISTORY = {}  # 存储余额历史记录
 
 def load_user_configs():
-    global USER_CONFIGS
+    global USER_CONFIGS, BALANCE_HISTORY
     try:
         if os.path.exists("user_configs.json"):
             with open("user_configs.json", "r") as f:
                 USER_CONFIGS = json.load(f)
+        if os.path.exists("balance_history.json"):
+            with open("balance_history.json", "r") as f:
+                BALANCE_HISTORY = json.load(f)
     except Exception as e:
         USER_CONFIGS = {}
+        BALANCE_HISTORY = {}
 
 def save_user_configs():
     try:
         with open("user_configs.json", "w") as f:
             json.dump(USER_CONFIGS, f, indent=4)
+        with open("balance_history.json", "w") as f:
+            json.dump(BALANCE_HISTORY, f, indent=4)
     except Exception as e:
         print(f"Error saving configs: {e}")
 
-def get_token_balance(w3, address):
-    """获取MON代币余额"""
+def get_token_balance(w3, address, token_address=None):
+    """获取代币余额"""
     try:
-        balance = w3.eth.get_balance(address)
-        return w3.from_wei(balance, 'ether')
+        if token_address is None:
+            # 原生代币 (MON)
+            balance = w3.eth.get_balance(address)
+            return w3.from_wei(balance, 'ether')
+        else:
+            # ERC20代币 (42T)
+            abi = [
+                {
+                    "constant": True,
+                    "inputs": [{"name": "_owner", "type": "address"}],
+                    "name": "balanceOf",
+                    "outputs": [{"name": "balance", "type": "uint256"}],
+                    "type": "function"
+                }
+            ]
+            contract = w3.eth.contract(address=token_address, abi=abi)
+            balance = contract.functions.balanceOf(address).call()
+            return balance / (10 ** 18)  # 假设18位小数
     except Exception as e:
         return "Error"
 
 def get_recent_transactions(address, limit=3):
-    """获取最近的交易"""
+    """获取最近的交易 - 使用BlockVision API"""
     try:
-        url = f"https://testnet.monadexplorer.com/api/address/{address}/transactions"
-        response = requests.get(url, timeout=10)
+        # 使用BlockVision API获取账户活动
+        url = "https://api.blockvision.org/v2/monad/account/activities"
+        params = {
+            "address": address,
+            "limit": limit,
+            "ascendingOrder": False  # 最新的记录在前
+        }
+        
+        # 添加API密钥（如果需要）
+        headers = {
+            "Content-Type": "application/json"
+        }
+        
+        # 如果有API密钥，添加到请求头
+        if BLOCKVISION_API_KEY:
+            headers["Authorization"] = f"Bearer {BLOCKVISION_API_KEY}"
+        
+        response = requests.get(url, params=params, headers=headers, timeout=15)
         
         if response.ok:
             data = response.json()
-            transactions = []
             
-            for tx in data.get("transactions", [])[:limit]:
-                tx_time = datetime.fromtimestamp(tx.get("timestamp", 0))
-                tx_hash = tx.get("hash", "")
+            if data.get("code") == 0 and data.get("result", {}).get("data"):
+                transactions = []
                 
-                transactions.append({
-                    "time": tx_time.strftime("%Y-%m-%d %H:%M:%S"),
-                    "hash": tx_hash
-                })
+                for activity in data["result"]["data"][:limit]:
+                    # 从BlockVision API获取详细信息
+                    tx_hash = activity.get("hash", "")
+                    timestamp = activity.get("timestamp", 0)
+                    tx_status = activity.get("txStatus", 0)
+                    tx_name = activity.get("txName", "Transfer")
+                    transaction_fee = activity.get("transactionFee", "0")
+                    
+                    # 转换时间戳（毫秒转秒）
+                    if timestamp:
+                        tx_time = datetime.fromtimestamp(timestamp / 1000)
+                        time_str = tx_time.strftime("%Y-%m-%d %H:%M:%S")
+                    else:
+                        time_str = "Unknown"
+                    
+                    # 获取代币信息
+                    token_info = ""
+                    if activity.get("addTokens"):
+                        for token in activity["addTokens"]:
+                            symbol = token.get("symbol", "")
+                            amount = token.get("amount", 0)
+                            if symbol and amount:
+                                token_info += f" +{amount} {symbol}"
+                    
+                    if activity.get("subTokens"):
+                        for token in activity["subTokens"]:
+                            symbol = token.get("symbol", "")
+                            amount = token.get("amount", 0)
+                            if symbol and amount:
+                                token_info += f" -{amount} {symbol}"
+                    
+                    transactions.append({
+                        "time": time_str,
+                        "hash": tx_hash,
+                        "type": tx_name,
+                        "status": "✅" if tx_status == 1 else "❌",
+                        "fee": transaction_fee,
+                        "tokens": token_info.strip()
+                    })
+                
+                return transactions
+            else:
+                print(f"BlockVision API error: {data.get('reason', 'Unknown error')}")
+        
+        # 如果BlockVision API失败，尝试备用方法
+        print(f"BlockVision API failed, trying fallback methods...")
+        
+        # 备用方法1：尝试Monad Explorer API
+        fallback_urls = [
+            f"https://testnet.monadexplorer.com/api/address/{address}/transactions",
+            f"https://testnet.monadexplorer.com/api/v1/address/{address}/transactions",
+            f"https://testnet.monadexplorer.com/api/transactions?address={address}"
+        ]
+        
+        for url in fallback_urls:
+            try:
+                response = requests.get(url, timeout=10)
+                if response.ok:
+                    data = response.json()
+                    
+                    transactions = []
+                    tx_list = data.get("transactions", []) or data.get("data", []) or data.get("result", [])
+                    
+                    for tx in tx_list[:limit]:
+                        timestamp = tx.get("timestamp") or tx.get("time") or tx.get("blockTime")
+                        tx_hash = tx.get("hash") or tx.get("txHash")
+                        
+                        if timestamp and tx_hash:
+                            tx_time = datetime.fromtimestamp(int(timestamp))
+                            transactions.append({
+                                "time": tx_time.strftime("%Y-%m-%d %H:%M:%S"),
+                                "hash": tx_hash,
+                                "type": "Transfer",
+                                "status": "✅",
+                                "fee": "0",
+                                "tokens": ""
+                            })
+                    
+                    if transactions:
+                        return transactions
+                        
+            except Exception as e:
+                continue
+        
+        # 备用方法2：直接从区块链获取
+        try:
+            w3 = Web3(Web3.HTTPProvider(MONAD_RPC))
+            if w3.is_connected():
+                nonce = w3.eth.get_transaction_count(address)
+                if nonce > 0:
+                    latest_block = w3.eth.block_number
+                    for block_num in range(latest_block, max(0, latest_block - 100), -1):
+                        try:
+                            block = w3.eth.get_block(block_num, full_transactions=True)
+                            for tx in block.transactions:
+                                if tx['from'].lower() == address.lower() or (tx['to'] and tx['to'].lower() == address.lower()):
+                                    tx_time = datetime.fromtimestamp(block.timestamp)
+                                    return [{
+                                        "time": tx_time.strftime("%Y-%m-%d %H:%M:%S"),
+                                        "hash": tx['hash'].hex(),
+                                        "type": "Transfer",
+                                        "status": "✅",
+                                        "fee": str(w3.from_wei(tx.get('gasPrice', 0) * tx.get('gas', 0), 'ether')),
+                                        "tokens": ""
+                                    }]
+                        except:
+                            continue
+        except:
+            pass
             
-            return transactions
-        else:
-            return []
-            
+        return []
+        
     except Exception as e:
+        print(f"Error getting transactions: {e}")
         return []
 
-def format_address_status(address, mon_balance, recent_txs):
+def format_address_status(address, mon_balance, fortytwo_balance, recent_txs):
     """格式化地址状态信息"""
     explorer_link = f"https://testnet.monadexplorer.com/address/{address}?tab=Activity&portfolio=Token"
     
+    # 获取余额变化
+    mon_change, t42_change = get_balance_change(address, mon_balance, fortytwo_balance)
+    
     msg = (
         f"<b>Address:</b> <code>{address}</code>\n"
-        f"<b>MON Balance:</b> {mon_balance} MON\n"
+        f"<b>MON Balance:</b> {mon_balance} MON"
     )
     
+    # 添加MON余额变化指示器
+    if mon_change is not None and mon_change != 0:
+        change_symbol = "📈" if mon_change > 0 else "📉"
+        change_text = f" (+{mon_change:.6f})" if mon_change > 0 else f" ({mon_change:.6f})"
+        msg += f" {change_symbol}{change_text}"
+    
+    msg += f"\n<b>42T Balance:</b> {fortytwo_balance} 42T"
+    
+    # 添加42T余额变化指示器
+    if t42_change is not None and t42_change != 0:
+        change_symbol = "📈" if t42_change > 0 else "📉"
+        change_text = f" (+{t42_change:.6f})" if t42_change > 0 else f" ({t42_change:.6f})"
+        msg += f" {change_symbol}{change_text}"
+    
+    # 添加活跃状态指示器
+    is_active = (mon_change is not None and mon_change != 0) or (t42_change is not None and t42_change != 0)
+    if is_active:
+        msg += "\n🟢 <b>ACTIVE - 余额有变化</b>"
+    
     if recent_txs:
-        msg += "\n<b>Recent Transactions:</b>\n"
+        msg += "\n\n<b>Recent Transactions:</b>\n"
         for i, tx in enumerate(recent_txs, 1):
             msg += f"{i}. {tx['time']}\n"
             msg += f"   <code>{tx['hash'][:10]}...</code>\n"
     else:
-        msg += "\n<b>Recent Transactions:</b> No recent activity\n"
+        msg += "\n\n<b>Recent Transactions:</b> No recent activity\n"
     
     msg += f'\n<a href="{explorer_link}">View on Explorer</a>'
     return msg
@@ -99,12 +261,12 @@ def format_address_status(address, mon_balance, recent_txs):
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     """处理 /start 命令"""
     welcome_msg = (
-        "🪙 <b>FortyTwo Token Monitor Bot</b>\n\n"
+        "🪙 FortyTwo Token Monitor Bot\n\n"
         "欢迎使用FortyTwo代币监控机器人！\n\n"
-        "<b>可用命令：</b>\n"
+        "可用命令：\n"
         "/check - 检查默认地址列表的代币余额\n"
-        "/check_address <address> - 检查指定地址的代币余额\n"
-        "/add_address <address> - 添加地址到监控列表\n"
+        "/check_address <code>address</code> - 检查指定地址的代币余额\n"
+        "/add_address <code>address</code> - 添加地址到监控列表\n"
         "/list_addresses - 查看监控地址列表\n"
         "/help - 显示帮助信息\n\n"
         "使用 /check 开始查询代币余额！"
@@ -117,12 +279,17 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         "🪙 <b>FortyTwo Token Monitor Bot - 帮助</b>\n\n"
         "<b>命令说明：</b>\n"
         "• /check - 检查所有默认地址的代币余额\n"
-        "• /check_address <address> - 检查单个地址\n"
-        "• /add_address <address> - 添加监控地址\n"
+        "• /check_address <code>address</code> - 检查单个地址\n"
+        "• /add_address <code>address</code> - 添加监控地址\n"
         "• /list_addresses - 查看监控列表\n"
+        "• /clear_history - 清除余额历史记录\n"
         "• /help - 显示此帮助信息\n\n"
+        "<b>余额变化指示器：</b>\n"
+        "📈 - 余额增加\n"
+        "📉 - 余额减少\n"
+        "🟢 ACTIVE - 地址有余额变化\n\n"
         "<b>示例：</b>\n"
-        "/check_address 0x2B0257e1302F2c3e0677956d0EA3F28d84919884"
+        "/check_address <code>0x2B0257e1302F2c3e0677956d0EA3F28d84919884</code>"
     )
     await update.message.reply_text(help_msg, parse_mode='HTML')
 
@@ -151,9 +318,10 @@ async def check_all(update: Update, context: ContextTypes.DEFAULT_TYPE):
         
         for i, address in enumerate(addresses, 1):
             mon_balance = get_token_balance(w3, address)
+            fortytwo_balance = get_token_balance(w3, address, FORTYTWO_TOKEN_ADDRESS)
             recent_txs = get_recent_transactions(address)
             
-            msg = format_address_status(address, mon_balance, recent_txs)
+            msg = format_address_status(address, mon_balance, fortytwo_balance, recent_txs)
             messages.append(msg)
             
             if i < len(addresses):
@@ -196,12 +364,13 @@ async def check_address(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         
         mon_balance = get_token_balance(w3, address)
+        fortytwo_balance = get_token_balance(w3, address, FORTYTWO_TOKEN_ADDRESS)
         recent_txs = get_recent_transactions(address)
         
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         header_msg = f"🪙 <b>FortyTwo Token Monitor</b>\n<b>Time:</b> {current_time}\n"
         
-        full_message = header_msg + "\n" + format_address_status(address, mon_balance, recent_txs)
+        full_message = header_msg + "\n" + format_address_status(address, mon_balance, fortytwo_balance, recent_txs)
         
         await status_msg.edit_text(full_message, parse_mode='HTML', disable_web_page_preview=True)
         
@@ -250,6 +419,42 @@ async def list_addresses(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     await update.message.reply_text(msg, parse_mode='HTML')
 
+async def clear_history(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    """处理 /clear_history 命令"""
+    global BALANCE_HISTORY
+    BALANCE_HISTORY = {}
+    save_user_configs()
+    await update.message.reply_text("✅ 已清除所有余额历史记录")
+
+def get_balance_change(address, current_mon, current_42t):
+    """获取余额变化"""
+    if address not in BALANCE_HISTORY:
+        BALANCE_HISTORY[address] = {
+            "mon": current_mon,
+            "42t": current_42t,
+            "last_update": datetime.now().isoformat()
+        }
+        return None, None
+    
+    prev = BALANCE_HISTORY[address]
+    mon_change = None
+    t42_change = None
+    
+    if isinstance(current_mon, (int, float)) and isinstance(prev["mon"], (int, float)):
+        mon_change = current_mon - prev["mon"]
+    
+    if isinstance(current_42t, (int, float)) and isinstance(prev["42t"], (int, float)):
+        t42_change = current_42t - prev["42t"]
+    
+    # 更新历史记录
+    BALANCE_HISTORY[address] = {
+        "mon": current_mon,
+        "42t": current_42t,
+        "last_update": datetime.now().isoformat()
+    }
+    
+    return mon_change, t42_change
+
 def main():
     """主函数"""
     load_user_configs()
@@ -268,6 +473,7 @@ def main():
     application.add_handler(CommandHandler("check_address", check_address))
     application.add_handler(CommandHandler("add_address", add_address))
     application.add_handler(CommandHandler("list_addresses", list_addresses))
+    application.add_handler(CommandHandler("clear_history", clear_history))
     
     print("🤖 FortyTwo Token Monitor Bot 正在启动...")
     print("使用 /start 开始使用机器人")
