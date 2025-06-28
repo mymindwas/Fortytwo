@@ -94,11 +94,7 @@ chmod +x deploy_bot.sh
 ```
 
 ## 输出示例
-
-```
-![image](https://github.com/user-attachments/assets/1570530e-d90e-4ee8-9862-1a670387b958)
-
-```
+![微信图片_20250628232604](https://github.com/user-attachments/assets/f4036bee-dbf7-4a45-8861-1fd2ee416e9b)
 
 ## 技术信息
 
