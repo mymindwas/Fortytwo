@@ -33,8 +33,8 @@ BotFather: 好的！我已经创建了你的机器人。
 
 ```bash
 # 1. 克隆代码到VPS
-git clone https://github.com/mymindwas/Fortytwo.git
-cd Fortytwo
+git clone https://github.com/mymindwas/Fortytwo-TelegramBot.git
+cd Fortytwo-TelegramBot
 
 # 2. 安装依赖
 apt update && apt install python3 python3-pip python3-venv screen
@@ -65,8 +65,8 @@ screen -S fortytwo-bot -X quit  # 停止机器人
 
 ```bash
 # 1. 克隆代码到VPS
-git clone https://github.com/mymindwas/Fortytwo.git
-cd Fortytwo
+git clone https://github.com/mymindwas/Fortytwo-TelegramBot.git
+cd Fortytwo-TelegramBot
 
 # 2. 给脚本执行权限
 chmod +x deploy_bot.sh
@@ -94,7 +94,21 @@ chmod +x deploy_bot.sh
 ```
 
 ## 输出示例
-![微信图片_20250628232604](https://github.com/user-attachments/assets/f4036bee-dbf7-4a45-8861-1fd2ee416e9b)
+
+```
+🪙 FortyTwo Token Monitor
+Time: 2024-01-15 14:30:25
+
+Address: 0x2B0257e1302F2c3e0677956d0EA3F28d84919884
+MON Balance: 1.234567 MON
+42T Balance: 0.500000 42T
+
+Recent Transactions:
+1. 2024-01-15 14:25:30
+   0x1234567890...
+
+View on Explorer
+```
 
 ## 技术信息
 

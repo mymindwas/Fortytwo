@@ -5,9 +5,9 @@ After=network.target
 [Service]
 Type=simple
 User=root
-WorkingDirectory=/root/fortytwo-bot
+WorkingDirectory=/root/Fortytwo-TelegramBot
 Environment=TELEGRAM_BOT_TOKEN=your_bot_token_here
-ExecStart=/root/fortytwo-bot/.venv/bin/python fortytwo_telegram_bot.py
+ExecStart=/root/Fortytwo-TelegramBot/.venv/bin/python fortytwo_telegram_bot.py
 Restart=always
 RestartSec=10
 

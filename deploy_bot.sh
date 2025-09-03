@@ -19,21 +19,43 @@ if [ -z "$1" ]; then
 fi
 
 BOT_TOKEN=$1
-PROJECT_DIR="/root/42bot"
+PROJECT_DIR="/root/Fortytwo-TelegramBot"
 
-echo "📁 创建项目目录..."
-mkdir -p $PROJECT_DIR
+echo "📁 打开项目目录..."
 cd $PROJECT_DIR
 
 echo "📥 检查项目文件..."
+echo "当前工作目录: $(pwd)"
+echo "项目目录: $PROJECT_DIR"
+echo "目录内容:"
+ls -la
+
 if [ ! -f "fortytwo_telegram_bot.py" ]; then
     echo "❌ 找不到 fortytwo_telegram_bot.py 文件"
     echo "请确保以下文件已上传到服务器："
     echo "- fortytwo_telegram_bot.py"
     echo "- requirements.txt"
     echo "- run_telegram_bot.py"
+    echo ""
+    echo "当前目录: $(pwd)"
+    echo "目录内容:"
+    ls -la
+    echo ""
+    echo "💡 提示：请确保在包含这些文件的目录中运行部署脚本"
     exit 1
 fi
+
+if [ ! -f "requirements.txt" ]; then
+    echo "❌ 找不到 requirements.txt 文件"
+    exit 1
+fi
+
+if [ ! -f "run_telegram_bot.py" ]; then
+    echo "❌ 找不到 run_telegram_bot.py 文件"
+    exit 1
+fi
+
+echo "✅ 所有必需文件已找到"
 
 echo "🐍 检查Python环境..."
 if ! command -v python3 &> /dev/null; then
